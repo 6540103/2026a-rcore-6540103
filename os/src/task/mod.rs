@@ -15,6 +15,8 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -115,6 +117,36 @@ impl TaskManager {
     }
 
     /// Get the current 'Running' task's token.
+    /// Increment the syscall counter of the current task.
+    fn incr_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[current].syscall_times[syscall_id] += 1;
+        }
+    }
+
+    /// Read the syscall counter of the current task.
+    fn syscall_count(&self, syscall_id: usize) -> u32 {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[current].syscall_times[syscall_id]
+        } else {
+            0
+        }
+    }
+
+    /// Run `f` with the current task's `MemorySet` borrowed mutably.
+    fn with_current_memory_set<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut MemorySet) -> R,
+    {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        f(&mut inner.tasks[current].memory_set)
+    }
+
     fn get_current_token(&self) -> usize {
         let inner = self.inner.exclusive_access();
         inner.tasks[inner.current_task].get_user_token()
@@ -201,4 +233,22 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Run `f` with the current task's `MemorySet` borrowed mutably.
+pub fn with_current_memory_set<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut MemorySet) -> R,
+{
+    TASK_MANAGER.with_current_memory_set(f)
+}
+
+/// Increment the syscall counter of the current task.
+pub fn incr_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.incr_syscall_count(syscall_id);
+}
+
+/// Read the syscall counter of the current task.
+pub fn syscall_count(syscall_id: usize) -> u32 {
+    TASK_MANAGER.syscall_count(syscall_id)
 }
