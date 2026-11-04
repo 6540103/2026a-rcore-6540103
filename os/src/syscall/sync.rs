@@ -146,6 +146,18 @@ pub fn sys_semaphore_create(res_count: usize) -> isize {
             .push(Some(Arc::new(Semaphore::new(res_count))));
         process_inner.semaphore_list.len() - 1
     };
+    if process_inner.deadlock_detect {
+        // 记录资源总量，供银行家算法计算 available
+        process_inner.sem_avail.resize(id + 1, 0);
+        process_inner.sem_avail[id] = res_count as isize;
+        let nsems = process_inner.semaphore_list.len();
+        for row in process_inner.sem_held.iter_mut() {
+            row.resize(nsems, 0);
+        }
+        for row in process_inner.sem_need.iter_mut() {
+            row.resize(nsems, 0);
+        }
+    }
     id as isize
 }
 /// semaphore up syscall
@@ -169,7 +181,6 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
         if inner.deadlock_detect {
             ensure_rows(&mut inner, tid, sem_id);
             inner.sem_held[tid][sem_id] -= 1;
-            inner.sem_avail[sem_id] += 1;
         }
         sem
     };
@@ -213,7 +224,6 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
         if inner.deadlock_detect {
             inner.sem_need[tid][sem_id] -= 1;
             inner.sem_held[tid][sem_id] += 1;
-            inner.sem_avail[sem_id] -= 1;
         }
     }
     0
@@ -301,6 +311,7 @@ pub fn sys_enable_deadlock_detect(enabled: usize) -> isize {
     inner.deadlock_detect = enabled != 0;
     if inner.deadlock_detect {
         // available 从各信号量的真实计数同步过来
+        // 记录各信号量的资源总量（available = total - 已分配）
         inner.sem_avail = inner
             .semaphore_list
             .iter()
@@ -335,8 +346,14 @@ fn ensure_rows(inner: &mut crate::task::ProcessControlBlockInner, tid: usize, se
 fn banker_safe(inner: &crate::task::ProcessControlBlockInner) -> bool {
     let ntasks = inner.tasks.len();
     let nsems = inner.semaphore_list.len();
+    // available = 资源总量 - 各线程已持有之和
     let mut work: Vec<isize> = inner.sem_avail.clone();
     work.resize(nsems, 0);
+    for t in 0..ntasks {
+        for s in 0..nsems {
+            work[s] -= inner.sem_held[t][s];
+        }
+    }
     let mut finish = vec![false; ntasks];
     loop {
         let mut progress = false;
