@@ -26,7 +26,7 @@ use crate::timer::remove_timer;
 use alloc::{sync::Arc, vec::Vec};
 use lazy_static::*;
 use manager::fetch_task;
-use process::ProcessControlBlock;
+pub use process::{ProcessControlBlock, ProcessControlBlockInner};
 use switch::__switch;
 
 pub use context::TaskContext;
@@ -37,7 +37,7 @@ pub use processor::{
     current_user_token, run_tasks, schedule, take_current_task,
 };
 pub use signal::SignalFlags;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, BIG_STRIDE};
 
 /// Make current task suspended and switch to the next task
 pub fn suspend_current_and_run_next() {

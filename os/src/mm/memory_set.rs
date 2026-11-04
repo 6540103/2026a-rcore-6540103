@@ -70,6 +70,34 @@ impl MemorySet {
         );
     }
     /// remove a area
+    /// Check whether `[start, end)` does not overlap any existing map area.
+    pub fn is_area_free(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        let (s, e) = (start.0, end.0);
+        self.areas.iter().all(|area| {
+            let a_start = area.vpn_range.get_start().0 * PAGE_SIZE;
+            let a_end = area.vpn_range.get_end().0 * PAGE_SIZE;
+            e <= a_start || s >= a_end
+        })
+    }
+
+    /// Remove the area that exactly covers `[start, end)`, unmapping its pages.
+    pub fn remove_area(&mut self, start: VirtAddr, end: VirtAddr) -> bool {
+        let (s, e) = (start.0, end.0);
+        let idx = self.areas.iter().position(|area| {
+            area.vpn_range.get_start().0 * PAGE_SIZE == s
+                && area.vpn_range.get_end().0 * PAGE_SIZE == e
+        });
+        match idx {
+            Some(i) => {
+                let mut area = self.areas.remove(i);
+                area.unmap(&mut self.page_table);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Remove the area whose start vpn equals `start_vpn`.
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
             .areas

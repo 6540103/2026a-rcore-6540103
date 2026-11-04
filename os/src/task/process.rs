@@ -49,6 +49,16 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// whether deadlock detection is enabled
+    pub deadlock_detect: bool,
+    /// available count of each semaphore (banker's algorithm "available")
+    pub sem_avail: Vec<isize>,
+    /// per-thread currently held semaphores: [tid][sem]
+    pub sem_held: Vec<Vec<isize>>,
+    /// per-thread pending requests: [tid][sem]
+    pub sem_need: Vec<Vec<isize>>,
+    /// owner tid of each mutex
+    pub mutex_owner: Vec<Option<usize>>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +129,11 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    sem_avail: Vec::new(),
+                    sem_held: Vec::new(),
+                    sem_need: Vec::new(),
+                    mutex_owner: Vec::new(),
                 })
             },
         });
@@ -245,6 +260,11 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    sem_avail: Vec::new(),
+                    sem_held: Vec::new(),
+                    sem_need: Vec::new(),
+                    mutex_owner: Vec::new(),
                 })
             },
         });

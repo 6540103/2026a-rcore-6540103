@@ -1,6 +1,9 @@
 //! Types related to task management & Functions for completely changing TCB
 
 use super::id::TaskUserRes;
+
+/// Big stride constant for the stride scheduler
+pub const BIG_STRIDE: usize = 1_000_000_000;
 use super::{kstack_alloc, KernelStack, ProcessControlBlock, TaskContext};
 use crate::trap::TrapContext;
 use crate::{mm::PhysPageNum, sync::UPSafeCell};
@@ -41,6 +44,12 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
     /// It is set when active exit or execution error occurs
     pub exit_code: Option<i32>,
+    /// Scheduling priority (>= 2)
+    pub priority: usize,
+    /// Accumulated stride, used by the stride scheduler
+    pub stride: usize,
+    /// How much stride grows each time this task is scheduled
+    pub pass: usize,
 }
 
 impl TaskControlBlockInner {
@@ -75,6 +84,9 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kstack_top),
                     task_status: TaskStatus::Ready,
                     exit_code: None,
+                    priority: 10,
+                    stride: 0,
+                    pass: BIG_STRIDE / 10,
                 })
             },
         }
