@@ -13,7 +13,7 @@ pub struct EasyFileSystem {
     pub inode_bitmap: Bitmap,
     ///Data bitmap
     pub data_bitmap: Bitmap,
-    inode_area_start_block: u32,
+    pub(crate) inode_area_start_block: u32,
     data_area_start_block: u32,
 }
 

@@ -1,5 +1,8 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
+
+/// Big stride constant for the stride scheduler
+pub const BIG_STRIDE: usize = 1_000_000_000;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::fs::{File, Stdin, Stdout};
@@ -71,6 +74,13 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Scheduling priority (>= 2)
+    pub priority: usize,
+    /// Accumulated stride, used by the stride scheduler
+    pub stride: usize,
+    /// How much stride grows each time this task is scheduled
+    pub pass: usize,
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +145,9 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority: 10,
+                    stride: 0,
+                    pass: BIG_STRIDE / 10,
                 })
             },
         };
@@ -216,6 +229,9 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    priority: parent_inner.priority,
+                    stride: 0,
+                    pass: parent_inner.pass,
                 })
             },
         });

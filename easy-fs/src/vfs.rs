@@ -1,6 +1,6 @@
 use super::{
     block_cache_sync_all, get_block_cache, BlockDevice, DirEntry, DiskInode, DiskInodeType,
-    EasyFileSystem, DIRENT_SZ,
+    EasyFileSystem, BLOCK_SZ, DIRENT_SZ,
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -182,5 +182,98 @@ impl Inode {
             }
         });
         block_cache_sync_all();
+    }
+
+    /// Whether this inode is a directory
+    pub fn is_dir(&self) -> bool {
+        self.read_disk_inode(|disk_inode| disk_inode.is_dir())
+    }
+    /// Whether this inode is a regular file
+    pub fn is_file(&self) -> bool {
+        self.read_disk_inode(|disk_inode| disk_inode.is_file())
+    }
+    /// The unique inode number of this inode
+    pub fn inode_id(&self) -> u32 {
+        let inode_size = core::mem::size_of::<DiskInode>();
+        let inodes_per_block = BLOCK_SZ / inode_size;
+        // block_id 是绝对块号，需要减掉 inode 区起始块才是相对块号
+        let fs = self.fs.lock();
+        let block = self.block_id - fs.inode_area_start_block as usize;
+        (block * inodes_per_block + self.block_offset / inode_size) as u32
+    }
+    /// Number of hard links pointing at this inode
+    pub fn nlink(&self) -> u32 {
+        self.read_disk_inode(|disk_inode| disk_inode.nlink)
+    }
+    /// Add one hard link; returns the new link count
+    pub fn link(&self) -> u32 {
+        let n = self.modify_disk_inode(|disk_inode| {
+            disk_inode.nlink += 1;
+            disk_inode.nlink
+        });
+        block_cache_sync_all();
+        n
+    }
+    /// Drop one hard link; returns the remaining link count
+    pub fn unlink(&self) -> u32 {
+        let n = self.modify_disk_inode(|disk_inode| {
+            if disk_inode.nlink > 0 {
+                disk_inode.nlink -= 1;
+            }
+            disk_inode.nlink
+        });
+        block_cache_sync_all();
+        n
+    }
+    /// Add a directory entry `name` pointing at an existing `inode_id`
+    pub fn add_dir_entry(&self, name: &str, inode_id: u32) -> bool {
+        let mut fs = self.fs.lock();
+        let exists = self.read_disk_inode(|di| self.find_inode_id(name, di).is_some());
+        if exists {
+            return false;
+        }
+        self.modify_disk_inode(|dir_inode| {
+            let count = (dir_inode.size as usize) / DIRENT_SZ;
+            let new_size = (count + 1) * DIRENT_SZ;
+            self.increase_size(new_size as u32, dir_inode, &mut fs);
+            let dirent = DirEntry::new(name, inode_id);
+            dir_inode.write_at(count * DIRENT_SZ, dirent.as_bytes(), &self.block_device);
+        });
+        block_cache_sync_all();
+        true
+    }
+    /// Remove the directory entry `name`; returns its inode id if found
+    pub fn remove_dir_entry(&self, name: &str) -> Option<u32> {
+        let mut _fs = self.fs.lock();
+        let inode_id = self.read_disk_inode(|di| self.find_inode_id(name, di))?;
+        self.modify_disk_inode(|dir_inode| {
+            let count = (dir_inode.size as usize) / DIRENT_SZ;
+            let mut dirent = DirEntry::empty();
+            for i in 0..count {
+                assert_eq!(
+                    dir_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device),
+                    DIRENT_SZ
+                );
+                if dirent.name() == name {
+                    // 把最后一项搬过来填洞，然后缩小目录
+                    if i != count - 1 {
+                        let mut last = DirEntry::empty();
+                        assert_eq!(
+                            dir_inode.read_at(
+                                (count - 1) * DIRENT_SZ,
+                                last.as_bytes_mut(),
+                                &self.block_device
+                            ),
+                            DIRENT_SZ
+                        );
+                        dir_inode.write_at(i * DIRENT_SZ, last.as_bytes(), &self.block_device);
+                    }
+                    dir_inode.size = ((count - 1) * DIRENT_SZ) as u32;
+                    break;
+                }
+            }
+        });
+        block_cache_sync_all();
+        Some(inode_id)
     }
 }
